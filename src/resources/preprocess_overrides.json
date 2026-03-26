@@ -1,0 +1,24 @@
+{
+  "preserve_tokens": [],
+  "token_overrides": {},
+  "eda_extra_stopwords": [
+    "nya",
+    "kak",
+    "mbak",
+    "kalo",
+    "klo",
+    "kalau",
+    "banget",
+    "sih",
+    "kayak",
+    "gue",
+    "ku",
+    "aja",
+    "nih",
+    "dong",
+    "kan",
+    "yah",
+    "ya",
+    "loh"
+  ]
+}

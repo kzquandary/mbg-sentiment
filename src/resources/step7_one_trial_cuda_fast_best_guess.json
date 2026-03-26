@@ -1,0 +1,16 @@
+[
+  {
+    "trial_name": "one_trial_cuda_fast_best_guess",
+    "model_name": "indobenchmark/indobert-base-p1",
+    "max_len": 96,
+    "batch_size": 16,
+    "hidden_size": 128,
+    "dropout": 0.3,
+    "lr": 2e-5,
+    "epochs": 3,
+    "freeze_bert": false,
+    "unfreeze_last_n": 1,
+    "optimizer": "adamw",
+    "patience": 1
+  }
+]

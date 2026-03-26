@@ -1,0 +1,45 @@
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Jupyter cache
+.ipynb_checkpoints/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+
+# Agent/brief prompt docs
+AGENTS.md
+brief.md
+gemini.md
+*gemini*.md
+
+# Data folder: keep folder, ignore generated artifacts, keep important dataset files
+data/*
+!data/.gitkeep
+!data/dataset.xlsx
+!data/dataset.csv
+
+# Model artifacts: keep folder only
+models/*
+!models/.gitkeep
+
+# Outputs artifacts: keep folder tree only
+outputs/*
+!outputs/.gitkeep
+!outputs/figures/
+!outputs/logs/
+outputs/figures/*
+!outputs/figures/.gitkeep
+outputs/logs/*
+!outputs/logs/.gitkeep
+
+# Collab report artifacts: keep folder only
+reportCollab/*
+!reportCollab/.gitkeep
+
+# Reports artifacts: keep folder only (except optional readme)
+reports/*
+!reports/.gitkeep
+!reports/README.md
