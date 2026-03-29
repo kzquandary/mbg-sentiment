@@ -1,0 +1,23 @@
+[
+  {
+    "trial_name": "final_best_basep1_finetune1_len96_bs4_h128_ce",
+    "model_name": "indobenchmark/indobert-base-p1",
+    "max_len": 96,
+    "batch_size": 4,
+    "hidden_size": 128,
+    "dropout": 0.3,
+    "lr": 0.00002,
+    "epochs": 4,
+    "freeze_bert": false,
+    "unfreeze_last_n": 1,
+    "optimizer": "adamw",
+    "patience": 1,
+    "classifier_type": "bilstm",
+    "loss_type": "ce",
+    "focal_gamma": 2.0,
+    "use_weighted_sampler": false,
+    "bert_lr": 0.00001,
+    "head_lr": 0.0003,
+    "warmup_ratio": 0.1
+  }
+]
