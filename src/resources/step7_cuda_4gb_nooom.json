@@ -1,0 +1,23 @@
+[
+  {
+    "trial_name": "nooom_lite_frozen_ce_len32_bs1_h64",
+    "model_name": "indobenchmark/indobert-lite-base-p2",
+    "max_len": 32,
+    "batch_size": 1,
+    "hidden_size": 64,
+    "dropout": 0.3,
+    "lr": 0.001,
+    "epochs": 5,
+    "freeze_bert": true,
+    "unfreeze_last_n": 0,
+    "optimizer": "adamw",
+    "patience": 2,
+    "classifier_type": "bilstm",
+    "loss_type": "ce",
+    "focal_gamma": 2.0,
+    "use_weighted_sampler": false,
+    "bert_lr": 0.0,
+    "head_lr": 0.0,
+    "warmup_ratio": 0.1
+  }
+]

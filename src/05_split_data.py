@@ -20,13 +20,13 @@ def label_distribution(df: pd.DataFrame, label_col: str) -> dict[str, dict[str, 
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Step 5 - Stratified train/val/test split")
-    parser.add_argument("--input", type=str, default="data/preprocessed_dataset.csv")
-    parser.add_argument("--text-col", type=str, default="text_model_input")
+    parser = argparse.ArgumentParser(description="Step 3 - Main stratified split (train/test) with optional val")
+    parser.add_argument("--input", type=str, default="data/dataset_clean.csv")
+    parser.add_argument("--text-col", type=str, default="text")
     parser.add_argument("--label-col", type=str, default="Labeling_Sentimen")
-    parser.add_argument("--train-ratio", type=float, default=0.8)
-    parser.add_argument("--val-ratio", type=float, default=0.1)
-    parser.add_argument("--test-ratio", type=float, default=0.1)
+    parser.add_argument("--train-ratio", type=float, default=0.7)
+    parser.add_argument("--val-ratio", type=float, default=0.0)
+    parser.add_argument("--test-ratio", type=float, default=0.3)
     parser.add_argument("--train-output", type=str, default="data/train.csv")
     parser.add_argument("--val-output", type=str, default="data/val.csv")
     parser.add_argument("--test-output", type=str, default="data/test.csv")
@@ -71,20 +71,26 @@ def main() -> None:
         random_state=SEED,
         stratify=df[args.label_col],
     )
+    if args.val_ratio > 0:
+        relative_test_size = args.test_ratio / (args.val_ratio + args.test_ratio)
+        val_df, test_df = train_test_split(
+            temp_df,
+            test_size=relative_test_size,
+            random_state=SEED,
+            stratify=temp_df[args.label_col],
+        )
+    else:
+        val_df = pd.DataFrame(columns=df.columns)
+        test_df = temp_df.copy()
 
-    relative_test_size = args.test_ratio / (args.val_ratio + args.test_ratio)
-    val_df, test_df = train_test_split(
-        temp_df,
-        test_size=relative_test_size,
-        random_state=SEED,
-        stratify=temp_df[args.label_col],
-    )
-
-    for p in [train_output, val_output, test_output, summary_output]:
+    for p in [train_output, test_output, summary_output]:
         backup_if_exists(p)
+    if args.val_ratio > 0:
+        backup_if_exists(val_output)
 
     train_df.to_csv(train_output, index=False, encoding="utf-8-sig")
-    val_df.to_csv(val_output, index=False, encoding="utf-8-sig")
+    if args.val_ratio > 0:
+        val_df.to_csv(val_output, index=False, encoding="utf-8-sig")
     test_df.to_csv(test_output, index=False, encoding="utf-8-sig")
 
     summary = {
@@ -92,6 +98,7 @@ def main() -> None:
         "input_file": str(input_path),
         "text_column": args.text_col,
         "label_column": args.label_col,
+        "main_split_design": "train_test_main_split",
         "split_ratio": {
             "train": args.train_ratio,
             "val": args.val_ratio,
@@ -105,23 +112,29 @@ def main() -> None:
         "size": {
             "full_after_filter": int(len(df)),
             "train": int(len(train_df)),
-            "val": int(len(val_df)),
+            "val": int(len(val_df)) if args.val_ratio > 0 else 0,
             "test": int(len(test_df)),
         },
         "distribution": {
             "full_after_filter": label_distribution(df, args.label_col),
             "train": label_distribution(train_df, args.label_col),
-            "val": label_distribution(val_df, args.label_col),
+            "val": label_distribution(val_df, args.label_col) if args.val_ratio > 0 else {},
             "test": label_distribution(test_df, args.label_col),
         },
     }
     write_json(summary, summary_output)
 
     print(f"[OK] Train saved: {train_output}")
-    print(f"[OK] Val saved: {val_output}")
+    if args.val_ratio > 0:
+        print(f"[OK] Val saved: {val_output}")
+    else:
+        print("[OK] Validation split disabled (val-ratio=0.0)")
     print(f"[OK] Test saved: {test_output}")
     print(f"[OK] Split summary saved: {summary_output}")
-    print(f"[INFO] Sizes -> train: {len(train_df)} | val: {len(val_df)} | test: {len(test_df)}")
+    if args.val_ratio > 0:
+        print(f"[INFO] Sizes -> train: {len(train_df)} | val: {len(val_df)} | test: {len(test_df)}")
+    else:
+        print(f"[INFO] Sizes -> train: {len(train_df)} | test: {len(test_df)}")
 
 
 if __name__ == "__main__":

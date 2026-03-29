@@ -7,9 +7,9 @@ from pathlib import Path
 STEP_SCRIPTS = {
     1: "src/01_audit_data.py",
     2: "src/02_clean_data.py",
-    3: "src/03_preprocess_text.py",
-    4: "src/04_eda.py",
-    5: "src/05_split_data.py",
+    3: "src/05_split_data.py",
+    4: "src/03_preprocess_text.py",
+    5: "src/04_eda.py",
     6: "src/06_baseline_models.py",
     7: "src/07_indobert_bilstm.py",
     8: "src/08_tuning.py",

@@ -16,7 +16,7 @@ def normalize_text(text: str) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Apply keputusan relabel dari file review.")
-    parser.add_argument("--input-dataset", type=str, default="data/cleaned_dataset.csv")
+    parser.add_argument("--input-dataset", type=str, default="data/dataset_clean.csv")
     parser.add_argument("--review-file", type=str, default="outputs/relabel_review_template.xlsx")
     parser.add_argument("--text-col", type=str, default="text")
     parser.add_argument("--label-col", type=str, default="Labeling_Sentimen")

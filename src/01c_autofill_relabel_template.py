@@ -56,7 +56,7 @@ NON_INFORMATIVE_SHORT = {
 def main() -> None:
     parser = argparse.ArgumentParser(description="Autofill relabel template with explicit rules.")
     parser.add_argument("--template", type=str, default="outputs/relabel_review_template.xlsx")
-    parser.add_argument("--dataset", type=str, default="data/cleaned_dataset.csv")
+    parser.add_argument("--dataset", type=str, default="data/dataset_clean.csv")
     parser.add_argument("--output", type=str, default="outputs/relabel_review_autofilled.xlsx")
     parser.add_argument("--summary", type=str, default="outputs/relabel_autofill_summary.json")
     args = parser.parse_args()

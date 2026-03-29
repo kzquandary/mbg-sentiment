@@ -15,7 +15,7 @@ def normalize_text(text: str) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Audit kualitas label (kandidat salah label).")
-    parser.add_argument("--input", type=str, default="data/cleaned_dataset.csv")
+    parser.add_argument("--input", type=str, default="data/dataset_clean.csv")
     parser.add_argument("--text-col", type=str, default="text")
     parser.add_argument("--label-col", type=str, default="Labeling_Sentimen")
     parser.add_argument("--out-csv", type=str, default="outputs/label_audit_candidates.csv")

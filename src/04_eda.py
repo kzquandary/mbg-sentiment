@@ -139,7 +139,7 @@ def write_summary_md(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Step 4 - Exploratory Data Analysis")
+    parser = argparse.ArgumentParser(description="Step 5 - Exploratory Data Analysis")
     parser.add_argument("--input", type=str, default="data/preprocessed_dataset.csv")
     parser.add_argument("--label-col", type=str, default="Labeling_Sentimen")
     parser.add_argument("--text-col", type=str, default="text_eda_input")

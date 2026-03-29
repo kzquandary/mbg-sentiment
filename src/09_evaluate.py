@@ -53,19 +53,27 @@ class IndoBERTBiLSTM(nn.Module):
         dropout: float = 0.3,
         freeze_bert: bool = True,
         unfreeze_last_n: int = 0,
+        classifier_type: str = "bilstm",
     ):
         super().__init__()
         self.bert = AutoModel.from_pretrained(model_name)
         bert_hidden = self.bert.config.hidden_size
-        self.bilstm = nn.LSTM(
-            input_size=bert_hidden,
-            hidden_size=hidden_size,
-            num_layers=1,
-            batch_first=True,
-            bidirectional=True,
-        )
+        self.classifier_type = classifier_type
+        self.input_dropout = nn.Dropout(dropout)
+        if self.classifier_type == "bilstm":
+            self.bilstm = nn.LSTM(
+                input_size=bert_hidden,
+                hidden_size=hidden_size,
+                num_layers=1,
+                batch_first=True,
+                bidirectional=True,
+            )
+            classifier_in = hidden_size * 2
+        else:
+            self.bilstm = None
+            classifier_in = bert_hidden
         self.dropout = nn.Dropout(dropout)
-        self.classifier = nn.Linear(hidden_size * 2, num_labels)
+        self.classifier = nn.Linear(classifier_in, num_labels)
 
         if freeze_bert:
             for p in self.bert.parameters():
@@ -79,11 +87,12 @@ class IndoBERTBiLSTM(nn.Module):
 
     def forward(self, input_ids, attention_mask):
         outputs = self.bert(input_ids=input_ids, attention_mask=attention_mask)
-        seq_out = outputs.last_hidden_state
-        lstm_out, _ = self.bilstm(seq_out)
+        seq_out = self.input_dropout(outputs.last_hidden_state)
+        if self.classifier_type == "bilstm":
+            seq_out, _ = self.bilstm(seq_out)
         mask = attention_mask.unsqueeze(-1).float()
-        masked = lstm_out * mask
-        pooled = masked.sum(dim=1) / mask.sum(dim=1).clamp(min=1e-9)
+        masked = seq_out.masked_fill(mask == 0, -1e9)
+        pooled = masked.max(dim=1).values
         return self.classifier(self.dropout(pooled))
 
 
@@ -154,6 +163,7 @@ def main() -> None:
     dropout = float(best_config.get("dropout", 0.3))
     freeze_bert = bool(best_config.get("freeze_bert", True))
     unfreeze_last_n = int(best_config.get("unfreeze_last_n", 0))
+    classifier_type = str(best_config.get("classifier_type", "bilstm"))
 
     tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=False)
     test_df = pd.read_csv(test_path)
@@ -177,6 +187,7 @@ def main() -> None:
         dropout=dropout,
         freeze_bert=freeze_bert,
         unfreeze_last_n=unfreeze_last_n,
+        classifier_type=classifier_type,
     ).to(device)
     model.load_state_dict(checkpoint["model_state_dict"])
 

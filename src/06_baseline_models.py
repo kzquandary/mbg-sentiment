@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
+from sklearn.model_selection import train_test_split
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support
@@ -82,27 +83,28 @@ def build_pipeline(vectorizer_cfg: dict, model_cfg: dict) -> Pipeline:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Step 6 - Baseline models with controlled tuning")
+    parser = argparse.ArgumentParser(description="Step 6 - Baseline models with internal validation")
     parser.add_argument("--train", type=str, default="data/train.csv")
-    parser.add_argument("--val", type=str, default="data/val.csv")
     parser.add_argument("--test", type=str, default="data/test.csv")
     parser.add_argument("--text-col", type=str, default="text_model_input")
     parser.add_argument("--label-col", type=str, default="Labeling_Sentimen")
+    parser.add_argument("--internal-val-ratio", type=float, default=0.15)
     parser.add_argument("--results-output", type=str, default="outputs/baseline_results.csv")
     parser.add_argument("--report-output", type=str, default="outputs/baseline_comparison.md")
     parser.add_argument("--trials-output", type=str, default="outputs/baseline_trials.csv")
     args = parser.parse_args()
 
     set_global_seed(SEED)
+    if not (0.05 <= args.internal_val_ratio < 0.5):
+        raise ValueError("--internal-val-ratio harus di rentang [0.05, 0.5).")
 
     train_path = Path(args.train)
-    val_path = Path(args.val)
     test_path = Path(args.test)
     results_output = Path(args.results_output)
     report_output = Path(args.report_output)
     trials_output = Path(args.trials_output)
 
-    for p in [train_path, val_path, test_path]:
+    for p in [train_path, test_path]:
         if not p.exists():
             raise FileNotFoundError(f"Required split file not found: {p}")
 
@@ -111,19 +113,25 @@ def main() -> None:
         backup_if_exists(p)
 
     train_df = pd.read_csv(train_path)
-    val_df = pd.read_csv(val_path)
     test_df = pd.read_csv(test_path)
 
-    for name, df in [("train", train_df), ("val", val_df), ("test", test_df)]:
+    for name, df in [("train", train_df), ("test", test_df)]:
         if args.text_col not in df.columns:
             raise KeyError(f"{name} missing text column: {args.text_col}")
         if args.label_col not in df.columns:
             raise KeyError(f"{name} missing label column: {args.label_col}")
 
-    x_train = train_df[args.text_col].fillna("").astype(str)
-    y_train = train_df[args.label_col].astype(str)
-    x_val = val_df[args.text_col].fillna("").astype(str)
-    y_val = val_df[args.label_col].astype(str)
+    internal_train_df, internal_val_df = train_test_split(
+        train_df,
+        test_size=args.internal_val_ratio,
+        random_state=SEED,
+        stratify=train_df[args.label_col].astype(str),
+    )
+
+    x_train = internal_train_df[args.text_col].fillna("").astype(str)
+    y_train = internal_train_df[args.label_col].astype(str)
+    x_val = internal_val_df[args.text_col].fillna("").astype(str)
+    y_val = internal_val_df[args.label_col].astype(str)
     x_test = test_df[args.text_col].fillna("").astype(str)
     y_test = test_df[args.label_col].astype(str)
 
@@ -171,7 +179,8 @@ def main() -> None:
     final_rows = []
     for model_name, best in best_by_model.items():
         pipe = build_pipeline(best["vcfg"], best["mcfg"])
-        pipe.fit(x_train, y_train)
+        # Refit on full main train split before final testing.
+        pipe.fit(train_df[args.text_col].fillna("").astype(str), train_df[args.label_col].astype(str))
         test_pred = pipe.predict(x_test)
         test_metrics = compute_metrics(y_test, test_pred)
 
@@ -219,7 +228,9 @@ def main() -> None:
         "",
         f"- Waktu proses: {datetime.now().isoformat()}",
         f"- Seed: {SEED}",
-        "- Tuning dilakukan di validation set, test set hanya evaluasi konfigurasi terbaik dari validation.",
+        "- Split utama yang dipakai: train/test (70:30 dari Step 5).",
+        f"- Validation internal baseline dibuat dari train.csv dengan rasio {args.internal_val_ratio}.",
+        "- Tuning baseline hanya di validation internal, test set hanya evaluasi akhir.",
         "",
         "## Ringkasan Hasil",
         f"- Model terbaik berdasarkan val f1_macro: `{best_model_on_val}`",

@@ -89,8 +89,8 @@ def build_tuning_configs(model_name: str) -> list[dict]:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Step 8 - Hyperparameter tuning")
     parser.add_argument("--train", type=str, default="data/train.csv")
-    parser.add_argument("--val", type=str, default="data/val.csv")
-    parser.add_argument("--model-name", type=str, default="indobenchmark/indobert-base-p1")
+    parser.add_argument("--model-name", type=str, default="indobenchmark/indobert-lite-base-p2")
+    parser.add_argument("--internal-val-ratio", type=float, default=0.15)
     parser.add_argument("--target-f1", type=float, default=None)
     parser.add_argument("--config-json-output", type=str, default="outputs/tuning_configs.json")
     parser.add_argument("--trial-output", type=str, default="outputs/step7_trials.csv")
@@ -117,8 +117,8 @@ def main() -> None:
         "src/07_indobert_bilstm.py",
         "--train",
         args.train,
-        "--val",
-        args.val,
+        "--internal-val-ratio",
+        str(args.internal_val_ratio),
         "--model-name",
         args.model_name,
         "--max-trials",

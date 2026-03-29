@@ -1,6 +1,7 @@
 # Python cache
 __pycache__/
 *.py[cod]
+.venv/
 
 # Jupyter cache
 .ipynb_checkpoints/
@@ -20,6 +21,7 @@ data/*
 !data/.gitkeep
 !data/dataset.xlsx
 !data/dataset.csv
+!data/dataset_relabel_mbg.csv
 
 # Model artifacts: keep folder only
 models/*

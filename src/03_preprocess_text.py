@@ -157,12 +157,36 @@ def load_override_config(path: Path) -> dict:
     }
 
 
+def preprocess_dataframe(
+    df: pd.DataFrame,
+    text_col: str,
+    emoji_handler,
+    slang_normalizer,
+    preserve_tokens: set[str],
+    token_overrides: dict[str, str],
+    stopword_set: set[str],
+) -> pd.DataFrame:
+    out = df.copy()
+    out["text_original"] = out[text_col].apply(normalize_text_value)
+    out["text_clean_basic"] = out["text_original"].apply(lambda x: clean_basic(x, emoji_handler))
+    out["text_clean_normalized"] = out["text_clean_basic"].apply(
+        lambda x: clean_normalized(x, slang_normalizer, preserve_tokens, token_overrides)
+    )
+    out["text_model_input"] = out["text_clean_normalized"]
+    out["text_eda_input"] = out["text_model_input"].apply(remove_emoji_sentiment_tokens)
+    out["text_eda_input"] = out["text_eda_input"].apply(lambda x: remove_stopwords_for_eda(x, stopword_set))
+    return out
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Step 3 - Text preprocessing")
-    parser.add_argument("--input", type=str, default="data/cleaned_dataset.csv")
+    parser = argparse.ArgumentParser(description="Step 4 - Text preprocessing on train/test branches")
+    parser.add_argument("--train-input", type=str, default="data/train.csv")
+    parser.add_argument("--test-input", type=str, default="data/test.csv")
     parser.add_argument("--text-col", type=str, default="text")
-    parser.add_argument("--output-xlsx", type=str, default="data/preprocessed_dataset.xlsx")
-    parser.add_argument("--output-csv", type=str, default="data/preprocessed_dataset.csv")
+    parser.add_argument("--train-output", type=str, default="data/train.csv")
+    parser.add_argument("--test-output", type=str, default="data/test.csv")
+    parser.add_argument("--combined-output-xlsx", type=str, default="data/preprocessed_dataset.xlsx")
+    parser.add_argument("--combined-output-csv", type=str, default="data/preprocessed_dataset.csv")
     parser.add_argument("--log-output", type=str, default="outputs/preprocessing_log.json")
     parser.add_argument("--sample-output", type=str, default="outputs/preprocessing_samples.csv")
     parser.add_argument("--sample-n", type=int, default=20)
@@ -171,24 +195,41 @@ def main() -> None:
 
     set_global_seed(SEED)
 
-    input_path = Path(args.input)
-    output_xlsx = Path(args.output_xlsx)
-    output_csv = Path(args.output_csv)
+    train_input = Path(args.train_input)
+    test_input = Path(args.test_input)
+    train_output = Path(args.train_output)
+    test_output = Path(args.test_output)
+    combined_output_xlsx = Path(args.combined_output_xlsx)
+    combined_output_csv = Path(args.combined_output_csv)
     log_output = Path(args.log_output)
     sample_output = Path(args.sample_output)
     override_config_path = Path(args.override_config)
 
-    if not input_path.exists():
-        raise FileNotFoundError(f"Input file not found: {input_path}")
+    if not train_input.exists():
+        raise FileNotFoundError(f"Train input file not found: {train_input}")
+    if not test_input.exists():
+        raise FileNotFoundError(f"Test input file not found: {test_input}")
 
-    ensure_dir(output_xlsx.parent)
-    ensure_dir(output_csv.parent)
+    for p in [train_output, test_output, combined_output_xlsx, combined_output_csv, log_output, sample_output]:
+        ensure_dir(p.parent)
+
+    train_df = pd.read_csv(train_input)
+    test_df = pd.read_csv(test_input)
+    for name, df in [("train", train_df), ("test", test_df)]:
+        if args.text_col not in df.columns:
+            raise KeyError(f"{name} text column not found: {args.text_col}")
+
+    backup_info = {
+        "train_output_backup": backup_if_exists(train_output),
+        "test_output_backup": backup_if_exists(test_output),
+        "combined_output_xlsx_backup": backup_if_exists(combined_output_xlsx),
+        "combined_output_csv_backup": backup_if_exists(combined_output_csv),
+        "log_output_backup": backup_if_exists(log_output),
+        "sample_output_backup": backup_if_exists(sample_output),
+    }
+
     ensure_dir(log_output.parent)
     ensure_dir(sample_output.parent)
-
-    df = pd.read_csv(input_path)
-    if args.text_col not in df.columns:
-        raise KeyError(f"Text column not found: {args.text_col}")
 
     override_config = load_override_config(override_config_path)
     preserve_tokens = set(override_config["preserve_tokens"])
@@ -198,32 +239,51 @@ def main() -> None:
     slang_normalizer, slang_normalizer_name = get_slang_normalizer()
     emoji_handler, emoji_handler_name = get_emoji_handler()
 
-    df["text_original"] = df[args.text_col].apply(normalize_text_value)
-    df["text_clean_basic"] = df["text_original"].apply(lambda x: clean_basic(x, emoji_handler))
-    df["text_clean_normalized"] = df["text_clean_basic"].apply(
-        lambda x: clean_normalized(x, slang_normalizer, preserve_tokens, token_overrides)
+    train_pp = preprocess_dataframe(
+        train_df,
+        text_col=args.text_col,
+        emoji_handler=emoji_handler,
+        slang_normalizer=slang_normalizer,
+        preserve_tokens=preserve_tokens,
+        token_overrides=token_overrides,
+        stopword_set=stopword_set,
     )
-    df["text_model_input"] = df["text_clean_normalized"]
-    df["text_eda_input"] = df["text_model_input"].apply(remove_emoji_sentiment_tokens)
-    df["text_eda_input"] = df["text_eda_input"].apply(lambda x: remove_stopwords_for_eda(x, stopword_set))
+    test_pp = preprocess_dataframe(
+        test_df,
+        text_col=args.text_col,
+        emoji_handler=emoji_handler,
+        slang_normalizer=slang_normalizer,
+        preserve_tokens=preserve_tokens,
+        token_overrides=token_overrides,
+        stopword_set=stopword_set,
+    )
 
-    backup_info = {
-        "output_xlsx_backup": backup_if_exists(output_xlsx),
-        "output_csv_backup": backup_if_exists(output_csv),
-        "log_output_backup": backup_if_exists(log_output),
-        "sample_output_backup": backup_if_exists(sample_output),
-    }
+    train_pp.to_csv(train_output, index=False, encoding="utf-8-sig")
+    test_pp.to_csv(test_output, index=False, encoding="utf-8-sig")
 
-    df.to_excel(output_xlsx, index=False)
-    df.to_csv(output_csv, index=False, encoding="utf-8-sig")
+    combined = pd.concat(
+        [train_pp.assign(split_source="train"), test_pp.assign(split_source="test")],
+        ignore_index=True,
+    )
+    combined.to_excel(combined_output_xlsx, index=False)
+    combined.to_csv(combined_output_csv, index=False, encoding="utf-8-sig")
 
     sample_cols = ["text_original", "text_clean_basic", "text_clean_normalized", "text_model_input", "text_eda_input"]
-    df[sample_cols].head(args.sample_n).to_csv(sample_output, index=False, encoding="utf-8-sig")
+    train_sample = train_pp.assign(split_source="train")[["split_source"] + sample_cols]
+    test_sample = test_pp.assign(split_source="test")[["split_source"] + sample_cols]
+    pd.concat([train_sample, test_sample], ignore_index=True).head(args.sample_n).to_csv(
+        sample_output, index=False, encoding="utf-8-sig"
+    )
 
     preprocessing_log = {
         "seed": SEED,
-        "input_file": str(input_path),
-        "rows_processed": int(len(df)),
+        "input_files": {"train": str(train_input), "test": str(test_input)},
+        "rows_processed": {
+            "train": int(len(train_pp)),
+            "test": int(len(test_pp)),
+            "total": int(len(train_pp) + len(test_pp)),
+        },
+        "main_split_design": "train_test_main_split_70_30",
         "text_column_source": args.text_col,
         "output_columns": sample_cols,
         "slang_normalizer": slang_normalizer_name,
@@ -252,11 +312,13 @@ def main() -> None:
     }
     write_json(preprocessing_log, log_output)
 
-    print(f"[OK] Preprocessed Excel: {output_xlsx}")
-    print(f"[OK] Preprocessed CSV: {output_csv}")
+    print(f"[OK] Preprocessed train CSV: {train_output}")
+    print(f"[OK] Preprocessed test CSV: {test_output}")
+    print(f"[OK] Combined preprocessed Excel: {combined_output_xlsx}")
+    print(f"[OK] Combined preprocessed CSV: {combined_output_csv}")
     print(f"[OK] Preprocessing log: {log_output}")
     print(f"[OK] Samples: {sample_output}")
-    print(f"[INFO] Rows processed: {len(df)}")
+    print(f"[INFO] Rows processed -> train: {len(train_pp)} | test: {len(test_pp)} | total: {len(combined)}")
 
 
 if __name__ == "__main__":

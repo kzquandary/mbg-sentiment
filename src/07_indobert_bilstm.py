@@ -10,6 +10,7 @@ import pandas as pd
 import torch
 import torch.nn as nn
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support
+from sklearn.model_selection import train_test_split
 from sklearn.utils.class_weight import compute_class_weight
 from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 from transformers import AutoModel, AutoTokenizer, get_linear_schedule_with_warmup
@@ -80,6 +81,7 @@ class IndoBERTBiLSTM(nn.Module):
         self.bert = AutoModel.from_pretrained(model_name)
         bert_hidden = self.bert.config.hidden_size
         self.classifier_type = classifier_type
+        self.input_dropout = nn.Dropout(dropout)
 
         if self.classifier_type == "bilstm":
             self.bilstm = nn.LSTM(
@@ -108,14 +110,16 @@ class IndoBERTBiLSTM(nn.Module):
 
     def forward(self, input_ids, attention_mask):
         outputs = self.bert(input_ids=input_ids, attention_mask=attention_mask)
-        seq_out = outputs.last_hidden_state
+        seq_out = self.input_dropout(outputs.last_hidden_state)
         mask = attention_mask.unsqueeze(-1).float()
         if self.classifier_type == "bilstm":
             lstm_out, _ = self.bilstm(seq_out)
-            masked = lstm_out * mask
+            features = lstm_out
         else:
-            masked = seq_out * mask
-        pooled = masked.sum(dim=1) / mask.sum(dim=1).clamp(min=1e-9)
+            features = seq_out
+        # Global max pooling on sequence features while masking padding tokens.
+        masked = features.masked_fill(mask == 0, -1e9)
+        pooled = masked.max(dim=1).values
 
         logits = self.classifier(self.dropout(pooled))
         return logits
@@ -215,9 +219,10 @@ def train_one_trial(
         optim_groups = [{"params": trainable_params, "lr": cfg.lr}]
 
     if cfg.optimizer.lower() == "adamw":
-        optimizer = torch.optim.AdamW(optim_groups)
+        # foreach=False reduces peak VRAM usage on small GPUs (e.g., 4GB).
+        optimizer = torch.optim.AdamW(optim_groups, foreach=False)
     else:
-        optimizer = torch.optim.Adam(optim_groups)
+        optimizer = torch.optim.Adam(optim_groups, foreach=False)
 
     total_steps = max(1, len(train_loader) * cfg.epochs)
     warmup_steps = int(total_steps * max(0.0, min(0.5, cfg.warmup_ratio)))
@@ -392,7 +397,8 @@ def load_trial_configs_from_json(config_path: Path, default_model_name: str) -> 
 def main():
     parser = argparse.ArgumentParser(description="Step 7 - IndoBERT + BiLSTM")
     parser.add_argument("--train", type=str, default="data/train.csv")
-    parser.add_argument("--val", type=str, default="data/val.csv")
+    parser.add_argument("--val", type=str, default="")
+    parser.add_argument("--internal-val-ratio", type=float, default=0.15)
     parser.add_argument("--text-col", type=str, default="text_model_input")
     parser.add_argument("--label-col", type=str, default="Labeling_Sentimen")
     parser.add_argument("--model-name", type=str, default="indobenchmark/indobert-lite-base-p2")
@@ -407,25 +413,36 @@ def main():
     args = parser.parse_args()
 
     set_global_seed(SEED)
+    if not (0.05 <= args.internal_val_ratio < 0.5):
+        raise ValueError("--internal-val-ratio harus di rentang [0.05, 0.5).")
     torch.set_num_threads(max(1, min(8, torch.get_num_threads())))
 
     train_path = Path(args.train)
-    val_path = Path(args.val)
+    val_path = Path(args.val) if args.val else None
     best_model_output = Path(args.best_model_output)
     history_output = Path(args.history_output)
     trials_output = Path(args.trials_output)
     arch_output = Path(args.arch_output)
     best_config_output = Path(args.best_config_output)
 
-    for p in [train_path, val_path]:
-        if not p.exists():
-            raise FileNotFoundError(f"Required file not found: {p}")
+    if not train_path.exists():
+        raise FileNotFoundError(f"Required file not found: {train_path}")
+    if val_path is not None and not val_path.exists():
+        raise FileNotFoundError(f"Required file not found: {val_path}")
     for p in [best_model_output, history_output, trials_output, arch_output, best_config_output]:
         ensure_dir(p.parent)
         backup_if_exists(p)
 
     train_df = pd.read_csv(train_path)
-    val_df = pd.read_csv(val_path)
+    if val_path is not None:
+        val_df = pd.read_csv(val_path)
+    else:
+        train_df, val_df = train_test_split(
+            train_df,
+            test_size=args.internal_val_ratio,
+            random_state=SEED,
+            stratify=train_df[args.label_col].astype(str),
+        )
 
     for name, df in [("train", train_df), ("val", val_df)]:
         if args.text_col not in df.columns:
@@ -555,9 +572,12 @@ def main():
         "",
         f"- Timestamp: {datetime.now().isoformat()}",
         f"- Base model: `{args.model_name}`",
-        "- Architecture: `IndoBERT -> BiLSTM (bidirectional, 1 layer) -> Dropout -> Linear classifier`",
+        "- Architecture: `IndoBERT -> Dropout -> BiLSTM (bidirectional, 1 layer) -> Global Max Pooling -> Fully Connected (Linear) -> Softmax`",
         f"- Device: `{device}`",
         f"- Labels: `{label2id}`",
+        f"- Main split source: `data/train.csv` dengan validation internal ratio `{args.internal_val_ratio}`"
+        if val_path is None
+        else f"- Validation source: `{val_path}`",
         "",
         "## Best Configuration",
         f"- Trial name: `{best_overall.trial_name}`",

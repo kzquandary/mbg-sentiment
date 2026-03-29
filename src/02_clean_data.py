@@ -47,8 +47,8 @@ def main() -> None:
     parser.add_argument("--input", type=str, default="data/dataset.xlsx")
     parser.add_argument("--text-col", type=str, default="text")
     parser.add_argument("--label-col", type=str, default="Labeling_Sentimen")
-    parser.add_argument("--output-xlsx", type=str, default="data/cleaned_dataset.xlsx")
-    parser.add_argument("--output-csv", type=str, default="data/cleaned_dataset.csv")
+    parser.add_argument("--output-xlsx", type=str, default="data/dataset_clean.xlsx")
+    parser.add_argument("--output-csv", type=str, default="data/dataset_clean.csv")
     parser.add_argument("--log-output", type=str, default="outputs/cleaning_log.json")
     args = parser.parse_args()
 
