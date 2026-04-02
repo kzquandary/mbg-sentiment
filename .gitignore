@@ -23,6 +23,7 @@ data/*
 !data/dataset.csv
 !data/dataset_relabel_mbg.csv
 !data/dataset_relabel_mbg_improved.csv
+!data/dataset_relabel_mbg_improved_v2_boost.csv
 
 # Model artifacts: keep folder only
 models/*
