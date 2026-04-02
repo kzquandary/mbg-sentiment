@@ -2,17 +2,10 @@ import argparse
 import json
 from pathlib import Path
 
-import matplotlib.pyplot as plt
 import pandas as pd
-import seaborn as sns
 import torch
 import torch.nn as nn
-from sklearn.metrics import (
-    accuracy_score,
-    classification_report,
-    confusion_matrix,
-    precision_recall_fscore_support,
-)
+from sklearn.metrics import precision_recall_fscore_support
 from torch.utils.data import DataLoader, Dataset
 from transformers import AutoModel, AutoTokenizer
 
@@ -96,10 +89,9 @@ class IndoBERTBiLSTM(nn.Module):
         return self.classifier(self.dropout(pooled))
 
 
-def evaluate_model(model, loader, device):
+def infer_probs(model, loader, device):
     model.eval()
     y_true = []
-    y_pred = []
     y_prob = []
     with torch.no_grad():
         for batch in loader:
@@ -108,48 +100,40 @@ def evaluate_model(model, loader, device):
             labels = batch["labels"].to(device)
             logits = model(input_ids=input_ids, attention_mask=attention_mask)
             probs = torch.softmax(logits, dim=1)
-            preds = torch.argmax(probs, dim=1)
             y_true.extend(labels.cpu().numpy().tolist())
-            y_pred.extend(preds.cpu().numpy().tolist())
             y_prob.extend(probs.cpu().numpy().tolist())
-    return y_true, y_pred, y_prob
+    return y_true, torch.tensor(y_prob, dtype=torch.float32)
+
+
+def macro_f1(y_true_ids, y_pred_ids):
+    _, _, f1, _ = precision_recall_fscore_support(y_true_ids, y_pred_ids, average="macro", zero_division=0)
+    return float(f1)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Step 9 - Final evaluation on test set")
-    parser.add_argument("--test", type=str, default="data/test.csv")
+    parser = argparse.ArgumentParser(description="Tune class multipliers on validation set to improve macro-F1.")
+    parser.add_argument("--val", type=str, default="data/val_sub.csv")
     parser.add_argument("--model-path", type=str, default="models/best_indobert_bilstm.pt")
     parser.add_argument("--text-col", type=str, default="text_model_input")
     parser.add_argument("--label-col", type=str, default="Labeling_Sentimen")
     parser.add_argument("--batch-size", type=int, default=8)
-    parser.add_argument("--metrics-output", type=str, default="outputs/final_metrics.json")
-    parser.add_argument("--cm-csv-output", type=str, default="outputs/confusion_matrix.csv")
-    parser.add_argument("--report-csv-output", type=str, default="outputs/classification_report.csv")
-    parser.add_argument("--cm-fig-output", type=str, default="outputs/figures/confusion_matrix.png")
-    parser.add_argument("--pred-output", type=str, default="outputs/test_predictions.csv")
-    parser.add_argument(
-        "--class-multiplier-json",
-        type=str,
-        default="",
-        help="Optional JSON mapping label->multiplier, e.g. {\"Negatif\":1.2,\"Netral\":1.0,\"Positif\":1.4}",
-    )
+    parser.add_argument("--mult-min", type=float, default=0.8)
+    parser.add_argument("--mult-max", type=float, default=1.6)
+    parser.add_argument("--mult-step", type=float, default=0.1)
+    parser.add_argument("--output", type=str, default="outputs/best_class_multipliers.json")
+    parser.add_argument("--summary-output", type=str, default="outputs/class_multiplier_tuning_summary.json")
     args = parser.parse_args()
 
     set_global_seed(SEED)
 
-    test_path = Path(args.test)
+    val_path = Path(args.val)
     model_path = Path(args.model_path)
-    metrics_output = Path(args.metrics_output)
-    cm_csv_output = Path(args.cm_csv_output)
-    report_csv_output = Path(args.report_csv_output)
-    cm_fig_output = Path(args.cm_fig_output)
-    pred_output = Path(args.pred_output)
-
-    for p in [test_path, model_path]:
+    output_path = Path(args.output)
+    summary_path = Path(args.summary_output)
+    for p in [val_path, model_path]:
         if not p.exists():
             raise FileNotFoundError(f"Required file not found: {p}")
-
-    for p in [metrics_output, cm_csv_output, report_csv_output, cm_fig_output, pred_output]:
+    for p in [output_path, summary_path]:
         ensure_dir(p.parent)
         backup_if_exists(p)
 
@@ -164,7 +148,7 @@ def main() -> None:
     id2label = {int(k): str(v) for k, v in id2label_raw.items()} if isinstance(next(iter(id2label_raw.keys())), str) else {
         int(k): str(v) for k, v in id2label_raw.items()
     }
-    ordered_labels = [id2label[i] for i in sorted(id2label.keys())]
+    labels_sorted_ids = sorted(id2label.keys())
 
     model_name = best_config.get("model_name", "indobenchmark/indobert-base-p1")
     max_len = int(best_config.get("max_len", 96))
@@ -174,17 +158,15 @@ def main() -> None:
     unfreeze_last_n = int(best_config.get("unfreeze_last_n", 0))
     classifier_type = str(best_config.get("classifier_type", "bilstm"))
 
-    tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=False)
-    test_df = pd.read_csv(test_path)
-    if args.text_col not in test_df.columns:
+    val_df = pd.read_csv(val_path)
+    if args.text_col not in val_df.columns:
         raise KeyError(f"Text column not found: {args.text_col}")
-    if args.label_col not in test_df.columns:
+    if args.label_col not in val_df.columns:
         raise KeyError(f"Label column not found: {args.label_col}")
+    texts = val_df[args.text_col].fillna("").astype(str).tolist()
+    labels = [label2id[x] for x in val_df[args.label_col].astype(str).tolist()]
 
-    texts = test_df[args.text_col].fillna("").astype(str).tolist()
-    labels_str = test_df[args.label_col].astype(str).tolist()
-    labels = [label2id[x] for x in labels_str]
-
+    tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=False)
     ds = TextDataset(texts, labels, tokenizer, max_len=max_len)
     loader = DataLoader(ds, batch_size=args.batch_size, shuffle=False)
 
@@ -200,71 +182,68 @@ def main() -> None:
     ).to(device)
     model.load_state_dict(checkpoint["model_state_dict"])
 
-    y_true, y_pred_default, y_prob = evaluate_model(model, loader, device)
-    y_pred = y_pred_default
-    multipliers_by_label = {}
-    if args.class_multiplier_json:
-        mult_path = Path(args.class_multiplier_json)
-        if not mult_path.exists():
-            raise FileNotFoundError(f"class-multiplier-json not found: {mult_path}")
-        raw = json.loads(mult_path.read_text(encoding="utf-8"))
-        multipliers_by_label = {str(k): float(v) for k, v in raw.items()}
-        mult_vec = torch.tensor(
-            [multipliers_by_label.get(id2label[i], 1.0) for i in sorted(id2label.keys())], dtype=torch.float32
-        )
-        prob_tensor = torch.tensor(y_prob, dtype=torch.float32)
-        adjusted = prob_tensor * mult_vec.unsqueeze(0)
-        y_pred = torch.argmax(adjusted, dim=1).tolist()
-    y_true_lbl = [id2label[i] for i in y_true]
-    y_pred_lbl = [id2label[i] for i in y_pred]
+    y_true, prob = infer_probs(model, loader, device)
+    baseline_pred = torch.argmax(prob, dim=1).tolist()
+    baseline_f1 = macro_f1(y_true, baseline_pred)
 
-    acc = accuracy_score(y_true_lbl, y_pred_lbl)
-    precision, recall, f1, _ = precision_recall_fscore_support(
-        y_true_lbl, y_pred_lbl, average="macro", zero_division=0
+    label_neg = "Negatif"
+    label_pos = "Positif"
+    if label_neg not in label2id or label_pos not in label2id:
+        raise ValueError("Label Negatif/Positif tidak ditemukan untuk tuning multiplier.")
+
+    neg_id = label2id[label_neg]
+    pos_id = label2id[label_pos]
+
+    vals = []
+    cur = args.mult_min
+    while cur <= args.mult_max + 1e-9:
+        vals.append(round(cur, 4))
+        cur += args.mult_step
+
+    best_f1 = baseline_f1
+    best_pair = (1.0, 1.0)
+    trials = 0
+    for neg_mult in vals:
+        for pos_mult in vals:
+            mult = torch.ones(len(labels_sorted_ids), dtype=torch.float32)
+            mult[neg_id] = float(neg_mult)
+            mult[pos_id] = float(pos_mult)
+            pred = torch.argmax(prob * mult.unsqueeze(0), dim=1).tolist()
+            f1 = macro_f1(y_true, pred)
+            trials += 1
+            if f1 > best_f1:
+                best_f1 = f1
+                best_pair = (float(neg_mult), float(pos_mult))
+
+    best_multiplier_map = {id2label[i]: 1.0 for i in labels_sorted_ids}
+    best_multiplier_map[label_neg] = best_pair[0]
+    best_multiplier_map[label_pos] = best_pair[1]
+
+    write_json(best_multiplier_map, output_path)
+    write_json(
+        {
+            "seed": SEED,
+            "val_file": str(val_path),
+            "model_path": str(model_path),
+            "baseline_macro_f1": baseline_f1,
+            "best_macro_f1": best_f1,
+            "improvement": float(best_f1 - baseline_f1),
+            "search_space": {
+                "mult_min": args.mult_min,
+                "mult_max": args.mult_max,
+                "mult_step": args.mult_step,
+                "num_trials": trials,
+            },
+            "best_multipliers": best_multiplier_map,
+        },
+        summary_path,
     )
 
-    cm = confusion_matrix(y_true_lbl, y_pred_lbl, labels=ordered_labels)
-    cm_df = pd.DataFrame(cm, index=ordered_labels, columns=ordered_labels)
-    cm_df.to_csv(cm_csv_output, encoding="utf-8-sig")
-
-    report_dict = classification_report(y_true_lbl, y_pred_lbl, output_dict=True, zero_division=0)
-    pd.DataFrame(report_dict).transpose().to_csv(report_csv_output, encoding="utf-8-sig")
-
-    plt.figure(figsize=(7, 6))
-    sns.heatmap(cm_df, annot=True, fmt="d", cmap="Blues")
-    plt.title("Confusion Matrix - Test Set")
-    plt.xlabel("Predicted")
-    plt.ylabel("Actual")
-    plt.tight_layout()
-    plt.savefig(cm_fig_output, dpi=220)
-    plt.close()
-
-    pred_df = test_df.copy()
-    pred_df["y_true"] = y_true_lbl
-    pred_df["y_pred"] = y_pred_lbl
-    pred_df["is_correct"] = pred_df["y_true"] == pred_df["y_pred"]
-    pred_df.to_csv(pred_output, index=False, encoding="utf-8-sig")
-
-    metrics_payload = {
-        "seed": SEED,
-        "model_path": str(model_path),
-        "model_name": model_name,
-        "device": str(device),
-        "test_size": int(len(test_df)),
-        "accuracy": float(acc),
-        "precision_macro": float(precision),
-        "recall_macro": float(recall),
-        "f1_macro": float(f1),
-        "labels_order": ordered_labels,
-        "class_multipliers": multipliers_by_label if multipliers_by_label else None,
-    }
-    write_json(metrics_payload, metrics_output)
-
-    print(f"[OK] Final metrics saved: {metrics_output}")
-    print(f"[OK] Confusion matrix CSV saved: {cm_csv_output}")
-    print(f"[OK] Classification report CSV saved: {report_csv_output}")
-    print(f"[OK] Confusion matrix figure saved: {cm_fig_output}")
-    print(f"[OK] Test predictions saved: {pred_output}")
+    print(f"[OK] Best class multipliers saved: {output_path}")
+    print(f"[OK] Tuning summary saved: {summary_path}")
+    print(f"[INFO] Baseline macro F1: {baseline_f1:.6f}")
+    print(f"[INFO] Best macro F1 (val): {best_f1:.6f}")
+    print(f"[INFO] Improvement: {best_f1 - baseline_f1:.6f}")
 
 
 if __name__ == "__main__":
