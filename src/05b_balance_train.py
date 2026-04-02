@@ -13,6 +13,12 @@ def main() -> None:
     parser.add_argument("--label-col", type=str, default="Labeling_Sentimen")
     parser.add_argument("--target-mode", type=str, default="max", choices=["max", "median", "fixed"])
     parser.add_argument("--target-count", type=int, default=0, help="Used only when target-mode=fixed")
+    parser.add_argument(
+        "--target-by-label-json",
+        type=str,
+        default="",
+        help="Optional JSON map label->target_count. If provided, overrides target-mode logic.",
+    )
     parser.add_argument("--output", type=str, default="data/train_balanced.csv")
     parser.add_argument("--log-output", type=str, default="outputs/train_balance_log.json")
     args = parser.parse_args()
@@ -39,14 +45,25 @@ def main() -> None:
         raise ValueError("Need at least 2 labels to balance.")
 
     counts_series = pd.Series(label_counts)
-    if args.target_mode == "max":
-        target_count = int(counts_series.max())
-    elif args.target_mode == "median":
-        target_count = int(counts_series.median())
+    target_by_label: dict[str, int] = {}
+    if args.target_by_label_json:
+        payload = pd.read_json(args.target_by_label_json, typ="series")
+        target_by_label = {str(k): int(v) for k, v in payload.to_dict().items()}
+        for lbl in label_counts.keys():
+            if lbl not in target_by_label:
+                raise ValueError(f"Label '{lbl}' missing in --target-by-label-json mapping.")
+            if int(target_by_label[lbl]) <= 0:
+                raise ValueError(f"Target count for label '{lbl}' must be > 0.")
+        target_count = -1
     else:
-        if args.target_count <= 0:
-            raise ValueError("--target-count must be > 0 for target-mode=fixed")
-        target_count = int(args.target_count)
+        if args.target_mode == "max":
+            target_count = int(counts_series.max())
+        elif args.target_mode == "median":
+            target_count = int(counts_series.median())
+        else:
+            if args.target_count <= 0:
+                raise ValueError("--target-count must be > 0 for target-mode=fixed")
+            target_count = int(args.target_count)
 
     parts: list[pd.DataFrame] = []
     resample_plan: dict[str, dict[str, int]] = {}
@@ -54,18 +71,24 @@ def main() -> None:
     for label, grp in df.groupby(args.label_col):
         grp = grp.copy()
         n = int(len(grp))
-        if n == target_count:
+        effective_target = int(target_by_label.get(str(label), target_count))
+        if n == effective_target:
             sampled = grp
             action = "keep"
-        elif n > target_count:
-            sampled = grp.sample(n=target_count, random_state=SEED, replace=False)
+        elif n > effective_target:
+            sampled = grp.sample(n=effective_target, random_state=SEED, replace=False)
             action = "downsample"
         else:
-            extra = grp.sample(n=(target_count - n), random_state=SEED, replace=True)
+            extra = grp.sample(n=(effective_target - n), random_state=SEED, replace=True)
             sampled = pd.concat([grp, extra], ignore_index=True)
             action = "oversample"
         parts.append(sampled)
-        resample_plan[str(label)] = {"before": n, "after": int(len(sampled)), "action": action}
+        resample_plan[str(label)] = {
+            "before": n,
+            "target": effective_target,
+            "after": int(len(sampled)),
+            "action": action,
+        }
 
     out = pd.concat(parts, ignore_index=True).sample(frac=1.0, random_state=SEED).reset_index(drop=True)
     out.to_csv(output_path, index=False, encoding="utf-8-sig")
@@ -78,6 +101,8 @@ def main() -> None:
         "label_column": args.label_col,
         "target_mode": args.target_mode,
         "target_count": target_count,
+        "target_by_label_json": args.target_by_label_json if args.target_by_label_json else None,
+        "target_by_label": target_by_label if target_by_label else None,
         "rows_before": int(len(df)),
         "rows_after": int(len(out)),
         "label_distribution_before": {str(k): int(v) for k, v in label_counts.items()},
@@ -96,4 +121,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
