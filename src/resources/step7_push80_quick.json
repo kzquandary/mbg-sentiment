@@ -1,0 +1,23 @@
+[
+  {
+    "trial_name": "push80_quick_finetune2_len128_h192_focal15_sampler",
+    "model_name": "indobenchmark/indobert-base-p1",
+    "max_len": 128,
+    "batch_size": 4,
+    "hidden_size": 192,
+    "dropout": 0.4,
+    "lr": 0.000015,
+    "epochs": 5,
+    "freeze_bert": false,
+    "unfreeze_last_n": 2,
+    "optimizer": "adamw",
+    "patience": 2,
+    "classifier_type": "bilstm",
+    "loss_type": "focal",
+    "focal_gamma": 1.5,
+    "use_weighted_sampler": true,
+    "bert_lr": 0.000008,
+    "head_lr": 0.00025,
+    "warmup_ratio": 0.1
+  }
+]
