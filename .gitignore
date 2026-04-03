@@ -13,6 +13,7 @@ Thumbs.db
 # Agent/brief prompt docs
 AGENTS.md
 brief.md
+newBrief.md
 gemini.md
 *gemini*.md
 
