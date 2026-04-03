@@ -31,12 +31,19 @@ def detect_column(columns: list[str], candidates: list[str]) -> str | None:
     return None
 
 
-def read_first_sheet(excel_path: Path) -> tuple[pd.DataFrame, dict[str, Any]]:
-    xls = pd.ExcelFile(excel_path)
-    sheet_names = xls.sheet_names
-    active_sheet = sheet_names[0]
-    df = pd.read_excel(excel_path, sheet_name=active_sheet)
-    return df, {"sheet_names": sheet_names, "active_sheet": active_sheet}
+def read_table(input_path: Path) -> tuple[pd.DataFrame, dict[str, Any]]:
+    suffix = input_path.suffix.lower()
+    if suffix in {".xlsx", ".xls"}:
+        xls = pd.ExcelFile(input_path)
+        sheet_names = xls.sheet_names
+        active_sheet = sheet_names[0]
+        df = pd.read_excel(input_path, sheet_name=active_sheet)
+        meta = {"input_type": "excel", "sheet_names": sheet_names, "active_sheet": active_sheet}
+        return df, meta
+    if suffix == ".csv":
+        df = pd.read_csv(input_path)
+        return df, {"input_type": "csv"}
+    raise ValueError(f"Unsupported input format: {input_path}")
 
 
 def audit_dataset(df: pd.DataFrame, text_col: str | None, label_col: str | None) -> dict[str, Any]:
@@ -80,8 +87,13 @@ def audit_dataset(df: pd.DataFrame, text_col: str | None, label_col: str | None)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Step 1 - Audit dataset from .xlsx file.")
-    parser.add_argument("--input", type=str, default="data/dataset.xlsx", help="Input xlsx path")
+    parser = argparse.ArgumentParser(description="Step 1 - Audit dataset (.csv or .xlsx).")
+    parser.add_argument(
+        "--input",
+        type=str,
+        default="data/dataset_relabel_mbg_improved_v2_boost.csv",
+        help="Input table path (.csv/.xlsx)",
+    )
     parser.add_argument(
         "--summary-output", type=str, default="outputs/data_audit_summary.json", help="Audit summary JSON output"
     )
@@ -103,7 +115,7 @@ def main() -> None:
     ensure_dir(summary_path.parent)
     ensure_dir(preview_path.parent)
 
-    df, excel_meta = read_first_sheet(input_path)
+    df, input_meta = read_table(input_path)
     text_col = detect_column(list(df.columns), TEXT_CANDIDATES)
     label_col = detect_column(list(df.columns), LABEL_CANDIDATES)
 
@@ -111,7 +123,7 @@ def main() -> None:
     summary = {
         "seed": SEED,
         "input_file": str(input_path),
-        "excel_info": excel_meta,
+        "input_info": input_meta,
         "audit": audit_result,
     }
     write_json(summary, summary_path)

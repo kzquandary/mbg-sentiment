@@ -44,7 +44,7 @@ def backup_if_exists(path: Path) -> str | None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Step 2 - Cleaning dataset")
-    parser.add_argument("--input", type=str, default="data/dataset.xlsx")
+    parser.add_argument("--input", type=str, default="data/dataset_relabel_mbg_improved_v2_boost.csv")
     parser.add_argument("--text-col", type=str, default="text")
     parser.add_argument("--label-col", type=str, default="Labeling_Sentimen")
     parser.add_argument("--output-xlsx", type=str, default="data/dataset_clean.xlsx")
@@ -66,7 +66,13 @@ def main() -> None:
     ensure_dir(output_csv.parent)
     ensure_dir(log_output.parent)
 
-    df = pd.read_excel(input_path)
+    suffix = input_path.suffix.lower()
+    if suffix in {".xlsx", ".xls"}:
+        df = pd.read_excel(input_path)
+    elif suffix == ".csv":
+        df = pd.read_csv(input_path)
+    else:
+        raise ValueError(f"Unsupported input format: {input_path}")
     if args.text_col not in df.columns:
         raise KeyError(f"Text column not found: {args.text_col}")
     if args.label_col not in df.columns:
