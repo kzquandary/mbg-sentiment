@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 .venv/
+.env
 
 # Jupyter cache
 .ipynb_checkpoints/
@@ -26,6 +27,7 @@ data/*
 !data/dataset_relabel_mbg_improved.csv
 !data/dataset_relabel_mbg_improved_v2_boost.csv
 !data/dataset_relabel_mbg_improved_v3_aug.csv
+!data/dataset_final.csv
 
 # Model artifacts: keep folder only
 models/*

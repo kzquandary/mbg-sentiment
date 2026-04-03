@@ -91,7 +91,7 @@ def main() -> None:
     parser.add_argument(
         "--input",
         type=str,
-        default="data/dataset_relabel_mbg_improved_v2_boost.csv",
+        default="data/dataset_final.csv",
         help="Input table path (.csv/.xlsx)",
     )
     parser.add_argument(

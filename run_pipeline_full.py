@@ -58,7 +58,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run full research pipeline from Step 1 to Step 11.")
     parser.add_argument("--from-step", type=int, default=1)
     parser.add_argument("--until-step", type=int, default=11)
-    parser.add_argument("--dataset-source", choices=["clean", "v1", "v2"], default="v2")
+    parser.add_argument("--dataset-source", choices=["clean", "v1", "v2", "final"], default="final")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--label-col", type=str, default="Labeling_Sentimen")
     parser.add_argument("--text-col-raw", type=str, default="text")
@@ -80,6 +80,7 @@ def main() -> None:
         "clean": "data/dataset_clean.csv",
         "v1": "data/dataset_relabel_mbg_improved.csv",
         "v2": "data/dataset_relabel_mbg_improved_v2_boost.csv",
+        "final": "data/dataset_final.csv",
     }
     split_input = dataset_input_map[args.dataset_source]
     ensure_file(split_input)

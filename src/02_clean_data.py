@@ -44,7 +44,7 @@ def backup_if_exists(path: Path) -> str | None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Step 2 - Cleaning dataset")
-    parser.add_argument("--input", type=str, default="data/dataset_relabel_mbg_improved_v2_boost.csv")
+    parser.add_argument("--input", type=str, default="data/dataset_final.csv")
     parser.add_argument("--text-col", type=str, default="text")
     parser.add_argument("--label-col", type=str, default="Labeling_Sentimen")
     parser.add_argument("--output-xlsx", type=str, default="data/dataset_clean.xlsx")
