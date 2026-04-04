@@ -134,6 +134,9 @@ def main() -> None:
     y_val = internal_val_df[args.label_col].astype(str)
     x_test = test_df[args.text_col].fillna("").astype(str)
     y_test = test_df[args.label_col].astype(str)
+    train_val_df = pd.concat([internal_train_df, internal_val_df], axis=0, ignore_index=True)
+    x_train_val = train_val_df[args.text_col].fillna("").astype(str)
+    y_train_val = train_val_df[args.label_col].astype(str)
 
     trial_rows: list[dict] = []
     best_by_model: dict[str, dict] = {}
@@ -152,6 +155,12 @@ def main() -> None:
                 "timestamp": datetime.now().isoformat(),
                 "seed": SEED,
                 "model": mcfg["model_name"],
+                "analyzer": vcfg["analyzer"],
+                "ngram_range": str(vcfg["ngram_range"]),
+                "min_df": vcfg["min_df"],
+                "max_df": vcfg["max_df"],
+                "sublinear_tf": vcfg["sublinear_tf"],
+                "C": mcfg["C"],
                 "split": "val",
                 "accuracy": round(val_metrics["accuracy"], 6),
                 "precision_macro": round(val_metrics["precision_macro"], 6),
@@ -177,18 +186,31 @@ def main() -> None:
     trial_df.to_csv(trials_output, index=False, encoding="utf-8-sig")
 
     final_rows = []
-    for model_name, best in best_by_model.items():
+    best_config_rows = []
+    for model_name in sorted(best_by_model.keys()):
+        best = best_by_model[model_name]
         pipe = build_pipeline(best["vcfg"], best["mcfg"])
-        # Refit on full main train split before final testing.
-        pipe.fit(train_df[args.text_col].fillna("").astype(str), train_df[args.label_col].astype(str))
+        # Refit final model on train+val after selecting best config on validation split.
+        pipe.fit(x_train_val, y_train_val)
         test_pred = pipe.predict(x_test)
         test_metrics = compute_metrics(y_test, test_pred)
+
+        best_cfg = {
+            "analyzer": best["vcfg"]["analyzer"],
+            "ngram_range": str(best["vcfg"]["ngram_range"]),
+            "min_df": best["vcfg"]["min_df"],
+            "max_df": best["vcfg"]["max_df"],
+            "sublinear_tf": best["vcfg"]["sublinear_tf"],
+            "C": best["mcfg"]["C"],
+        }
+        best_config_rows.append({"model": model_name, **best_cfg})
 
         final_rows.append(
             {
                 "timestamp": datetime.now().isoformat(),
                 "seed": SEED,
                 "model": model_name,
+                **best_cfg,
                 "split": "val_best_config",
                 "accuracy": best["val_row"]["accuracy"],
                 "precision_macro": best["val_row"]["precision_macro"],
@@ -202,6 +224,7 @@ def main() -> None:
                 "timestamp": datetime.now().isoformat(),
                 "seed": SEED,
                 "model": model_name,
+                **best_cfg,
                 "split": "test_best_from_val",
                 "accuracy": round(test_metrics["accuracy"], 6),
                 "precision_macro": round(test_metrics["precision_macro"], 6),
@@ -214,14 +237,7 @@ def main() -> None:
     results_df = pd.DataFrame(final_rows).sort_values(["model", "split"])
     results_df.to_csv(results_output, index=False, encoding="utf-8-sig")
 
-    best_model_on_val = max(
-        [r for r in final_rows if r["split"] == "val_best_config"],
-        key=lambda x: x["f1_macro"],
-    )["model"]
-    best_model_on_test = max(
-        [r for r in final_rows if r["split"] == "test_best_from_val"],
-        key=lambda x: x["f1_macro"],
-    )["model"]
+    best_config_df = pd.DataFrame(best_config_rows).sort_values(["model"])
 
     lines = [
         "# Baseline Comparison",
@@ -230,18 +246,22 @@ def main() -> None:
         f"- Seed: {SEED}",
         "- Split utama yang dipakai: train/test (70:30 dari Step 5).",
         f"- Validation internal baseline dibuat dari train.csv dengan rasio {args.internal_val_ratio}.",
-        "- Tuning baseline hanya di validation internal, test set hanya evaluasi akhir.",
+        "- Tuning baseline dilakukan hanya di validation set.",
+        "- Setelah best config dipilih dari validation, model di-refit pada gabungan train+validation.",
+        "- Final evaluation dilakukan sekali pada held-out test set.",
         "",
-        "## Ringkasan Hasil",
-        f"- Model terbaik berdasarkan val f1_macro: `{best_model_on_val}`",
-        f"- Model terbaik berdasarkan test f1_macro (best-from-val): `{best_model_on_test}`",
+        "## Best Config Per Baseline (Dari Validation)",
         "",
-        "## Metrik Konfigurasi Terbaik",
+        dataframe_to_markdown_simple(best_config_df),
+        "",
+        "## Hasil Final Baseline",
         "",
         dataframe_to_markdown_simple(results_df),
         "",
         "## Catatan",
         f"- Semua trial validation disimpan di `{trials_output}`",
+        f"- Ringkasan hasil baseline disimpan di `{results_output}`",
+        "- Tidak ada pemilihan model berdasarkan metrik test set.",
     ]
     report_output.write_text("\n".join(lines), encoding="utf-8")
 
